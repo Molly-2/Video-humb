@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Upload, Search, and Categories</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    .container { padding: 20px; }
+    video { max-width: 100%; margin-top: 20px; }
+    .download { margin-top: 10px; }
+    select, input, button { margin-top: 10px; }
+    .search-bar { margin: 20px 0; }
+    .search-bar input { width: 60%; padding: 5px; }
+    .search-bar button { padding: 5px 10px; }
+    .progress-container { margin-top: 20px; display: none; }
+    .progress-bar {
+      width: 0;
+      height: 20px;
+      background-color: #4caf50;
+      text-align: center;
+      line-height: 20px;
+      color: white;
+    }
+    .random-btn {
+      margin-top: 20px;
+      cursor: pointer;
+      font-size: 18px;
+      color: #007BFF;
+      display: flex;
+      align-items: center;
+    }
+    .random-btn i {
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Upload, Search, and Browse Videos</h1>
+
+    <!-- Video Upload Form -->
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input type="file" id="videoInput" accept="video/*" required>
+      <input type="text" id="videoTitle" placeholder="Video Title" required>
+      <select id="videoCategory" required>
+        <option value="">Select Category</option>
+        <option value="News">News</option>
+        <option value="Sports">Sports</option>
+        <option value="Entertainment">Entertainment</option>
+      </select>
+      <button type="submit">Upload Video</button>
+    </form>
+
+    <!-- Upload Progress -->
+    <div class="progress-container">
+      <div class="progress-bar" id="progressBar">0%</div>
+    </div>
+
+    <!-- Search Videos -->
+    <h2>Search Videos</h2>
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search video by title...">
+      <button id="searchButton">Search</button>
+    </div>
+
+    <!-- Random Button -->
+    <div class="random-btn" id="randomButton">
+      <i class="fas fa-random"></i> Show Random Videos
+    </div>
+
+    <!-- Filter by Category -->
+    <h2>Browse Videos</h2>
+    <select id="categoryFilter">
+      <option value="All">All</option>
+      <option value="News">News</option>
+      <option value="Sports">Sports</option>
+      <option value="Entertainment">Entertainment</option>
+    </select>
+    
+    <!-- Video List -->
+    <div id="videoContainer"></div>
+  </div>
+
+  <script>
+    const socket = io();
+    let allVideos = []; // Store all videos locally for filtering and search
+
+    // Handle video upload with progress
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('videoInput');
+      const videoTitle = document.getElementById('videoTitle').value;
+      const videoCategory = document.getElementById('videoCategory').value;
+
+      if (!fileInput.files.length || !videoTitle || !videoCategory) {
+        alert('Please fill all fields and select a video.');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('video', fileInput.files[0]);
+      formData.append('title', videoTitle);
+      formData.append('category', videoCategory);
+
+      const progressContainer = document.querySelector('.progress-container');
+      const progressBar = document.getElementById('progressBar');
+      progressContainer.style.display = 'block';
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/upload', true);
+
+      // Update progress bar
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          progressBar.style.width = percent + '%';
+          progressBar.textContent = percent + '%';
+        }
+      });
+
+      xhr.onload = () => {
+        progressContainer.style.display = 'none';
+        if (xhr.status === 200) {
+          alert('Video uploaded successfully!');
+          loadVideos();
+        } else {
+          alert('Failed to upload video: ' + xhr.responseText);
+        }
+      };
+
+      xhr.onerror = () => {
+        progressContainer.style.display = 'none';
+        alert('Error uploading video.');
+      };
+
+      xhr.send(formData);
+    });
+
+    // Fetch and display videos
+    async function loadVideos(category = 'All', searchQuery = '') {
+      const response = await fetch('/videos');
+      allVideos = await response.json(); // Store all videos locally
+      displayVideos(category, searchQuery);
+    }
+
+    // Display filtered videos
+    function displayVideos(category = 'All', searchQuery = '') {
+      const container = document.getElementById('videoContainer');
+      container.innerHTML = '';
+
+      let filteredVideos = allVideos;
+
+      // Filter by category
+      if (category !== 'All') {
+        filteredVideos = filteredVideos.filter(video => video.category === category);
+      }
+
+      // Search by title
+      if (searchQuery) {
+        filteredVideos = filteredVideos.filter(video => 
+          video.title.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+      }
+
+      // Display videos
+      if (filteredVideos.length === 0) {
+        container.innerHTML = '<p>No videos found.</p>';
+        return;
+      }
+
+      filteredVideos.forEach(video => {
+        container.innerHTML += `
+          <h3>${video.title} (${video.category})</h3>
+          <video controls>
+            <source src="${video.url}" type="video/mp4">
+          </video>
+          <div class="download">
+            <a href="${video.url}" download>Download Video</a>
+          </div>
+          <hr>
+        `;
+      });
+    }
+
+    // Shuffle and show random videos
+    document.getElementById('randomButton').addEventListener('click', () => {
+      const shuffledVideos = allVideos.sort(() => Math.random() - 0.5);
+      displayVideos('All', '');
+    });
+
+    // Handle category filter
+    document.getElementById('categoryFilter').addEventListener('change', (e) => {
+      loadVideos(e.target.value, document.getElementById('searchInput').value);
+    });
+
+    // Handle video search
+    document.getElementById('searchButton').addEventListener('click', () => {
+      const searchQuery = document.getElementById('searchInput').value;
+      const category = document.getElementById('categoryFilter').value;
+      displayVideos(category, searchQuery);
+    });
+
+    // Listen for new videos
+    socket.on('newVideo', (video) => {
+      loadVideos();
+    });
+
+    // Initial load
+    loadVideos();
+  </script>
+</body>
+</html>
